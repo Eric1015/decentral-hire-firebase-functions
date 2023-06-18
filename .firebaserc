@@ -1,0 +1,13 @@
+{
+  "projects": {
+    "default": "decentralhire"
+  },
+  "targets": {},
+  "etags": {
+    "decentralhire": {
+      "extensionInstances": {
+        "moralis-streams": "191b5a861cf18a2280a92f7380be60e5728517e2d0720efb0587452b9927e65f"
+      }
+    }
+  }
+}
