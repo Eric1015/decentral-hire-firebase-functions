@@ -15,7 +15,7 @@ enum JobApplicationStatus {
   Hired,
 }
 
-export const extractJobPostingInformation = functions.database
+export const processDecentralHireEvents = functions.database
   .ref('/morails/events')
   .onWrite((change) => {
     const message = change.after.val();
