@@ -9,5 +9,12 @@
   },
   "extensions": {
     "moralis-streams": "moralis/moralis-streams@0.1.16"
+  },
+  "functions": {
+    "source": "functions"
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   }
 }
