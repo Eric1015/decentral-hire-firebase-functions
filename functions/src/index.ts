@@ -16,7 +16,7 @@ enum JobApplicationStatus {
 }
 
 export const processDecentralHireEvents = functions.database
-  .ref('/morails/events')
+  .ref('/moralis/events')
   .onWrite((change) => {
     const message = change.after.val();
 
