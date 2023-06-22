@@ -72,17 +72,18 @@ const processEventsByType = (message: LogDocument) => {
 const processJobPostingCreatedEvent = async (message: LogDocument) => {
   const jobPosting = message;
 
-  const from = (jobPosting._from || '').toString();
-  const companyName = jobPosting._companyName;
+  const companyProfileAddress = (
+    jobPosting._companyProfileAddress || ''
+  ).toString();
   const jobTitle = jobPosting._title;
   const country = jobPosting._country;
   const city = jobPosting._city;
   const isRemote = jobPosting._isRemote;
   const contractAddress = (jobPosting._contractAddress || '').toString();
 
-  if (!from || !contractAddress) {
+  if (!companyProfileAddress || !contractAddress) {
     functions.logger.log(
-      `Failed to process JobPostingCreatedEvent: missing 'from' or 'contractAddress' (from: ${from}, contractAddress: ${contractAddress})`
+      `Failed to process JobPostingCreatedEvent: missing 'companyProfileAddress' or 'contractAddress' (companyProfileAddress: ${companyProfileAddress}, contractAddress: ${contractAddress})`
     );
     return;
   }
@@ -90,8 +91,7 @@ const processJobPostingCreatedEvent = async (message: LogDocument) => {
   // write to the JobPostings document
   await db.collection('JobPostings').add({
     id: contractAddress,
-    companyAddress: from,
-    companyName,
+    companyAddress: companyProfileAddress,
     jobTitle,
     country,
     city,
@@ -103,14 +103,16 @@ const processJobPostingCreatedEvent = async (message: LogDocument) => {
 const processJobPostingClosedEvent = async (message: LogDocument) => {
   const jobPosting = message;
 
-  const from = (jobPosting._from || '').toString();
+  const companyProfileAddress = (
+    jobPosting._companyProfileAddress || ''
+  ).toString();
   const contractAddress = (jobPosting._contractAddress || '').toString();
 
-  if (!from || !contractAddress) {
+  if (!companyProfileAddress || !contractAddress) {
     functions.logger.error(
-      `Failed to process JobPostingClosedEvent: missing 'from' or 'contractAddress' (from: ${from}, contractAddress: ${contractAddress})`
+      `Failed to process JobPostingClosedEvent: missing 'companyProfileAddress' or 'contractAddress' (companyProfileAddress: ${companyProfileAddress}, contractAddress: ${contractAddress})`
     );
-    throw new Error(`missing 'from' or 'contractAddress'`);
+    throw new Error(`missing 'companyProfileAddress' or 'contractAddress'`);
   }
 
   const existingJobPosting = await db
@@ -134,7 +136,7 @@ const processJobPostingClosedEvent = async (message: LogDocument) => {
     .update({
       ...existingJobPosting.data(),
       id: contractAddress,
-      companyAddress: from,
+      companyAddress: companyProfileAddress,
       isActive: false,
     });
 };
