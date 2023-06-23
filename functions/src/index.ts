@@ -1,7 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import { getFirestore } from 'firebase-admin/firestore';
-import { LogDocument } from 'moralis/streams';
+import { DocumentData, getFirestore } from 'firebase-admin/firestore';
 
 admin.initializeApp();
 const db = getFirestore();
@@ -15,12 +14,12 @@ enum JobApplicationStatus {
   Hired,
 }
 
-export const processDecentralHireEvents = functions.database
-  .ref('/moralis/events')
+export const processDecentralHireEvents = functions.firestore
+  .document('/moralis/events/Decentralhire/{eventId}')
   .onWrite((change) => {
-    const message = change.after.val();
+    const message = change.after.data();
 
-    if (!message && !message.processed) {
+    if (message && !message.processed) {
       functions.logger.log('Retrieved event content: ', message);
 
       try {
@@ -38,7 +37,7 @@ export const processDecentralHireEvents = functions.database
     return null;
   });
 
-const processEventsByType = (message: LogDocument) => {
+const processEventsByType = (message: DocumentData) => {
   switch (message.name) {
     case 'JobPostingCreatedEvent':
       processJobPostingCreatedEvent(message);
@@ -69,7 +68,7 @@ const processEventsByType = (message: LogDocument) => {
   }
 };
 
-const processJobPostingCreatedEvent = async (message: LogDocument) => {
+const processJobPostingCreatedEvent = async (message: DocumentData) => {
   const jobPosting = message;
 
   const companyProfileAddress = (
@@ -78,7 +77,7 @@ const processJobPostingCreatedEvent = async (message: LogDocument) => {
   const jobTitle = jobPosting._title;
   const country = jobPosting._country;
   const city = jobPosting._city;
-  const isRemote = jobPosting._isRemote;
+  const isRemote = jobPosting._isRemote === 'true';
   const contractAddress = (jobPosting._contractAddress || '').toString();
 
   if (!companyProfileAddress || !contractAddress) {
@@ -88,19 +87,29 @@ const processJobPostingCreatedEvent = async (message: LogDocument) => {
     return;
   }
 
-  // write to the JobPostings document
-  await db.collection('JobPostings').add({
-    id: contractAddress,
+  const existingJobPosting = await findJobPostingByContractAddress(
+    contractAddress
+  );
+
+  const data = {
+    contractAddress,
     companyAddress: companyProfileAddress,
     jobTitle,
     country,
     city,
     isRemote,
     isActive: true,
-  });
+  };
+
+  if (existingJobPosting) {
+    await db.collection('JobPostings').doc(existingJobPosting.id).update(data);
+  } else {
+    // write to the JobPostings document
+    await db.collection('JobPostings').add(data);
+  }
 };
 
-const processJobPostingClosedEvent = async (message: LogDocument) => {
+const processJobPostingClosedEvent = async (message: DocumentData) => {
   const jobPosting = message;
 
   const companyProfileAddress = (
@@ -115,12 +124,11 @@ const processJobPostingClosedEvent = async (message: LogDocument) => {
     throw new Error(`missing 'companyProfileAddress' or 'contractAddress'`);
   }
 
-  const existingJobPosting = await db
-    .collection('JobPostings')
-    .doc(contractAddress)
-    .get();
+  const existingJobPosting = await findJobPostingByContractAddress(
+    contractAddress
+  );
 
-  if (!existingJobPosting.exists) {
+  if (!existingJobPosting) {
     functions.logger.error(
       `Failed to process JobPostingClosedEvent: JobPosting not found (contractAddress: ${contractAddress})`
     );
@@ -132,16 +140,16 @@ const processJobPostingClosedEvent = async (message: LogDocument) => {
   // update the JobPostings document
   await db
     .collection('JobPostings')
-    .doc(contractAddress)
+    .doc(existingJobPosting.id)
     .update({
       ...existingJobPosting.data(),
-      id: contractAddress,
+      contractAddress,
       companyAddress: companyProfileAddress,
       isActive: false,
     });
 };
 
-const processJobApplicationCreatedEvent = async (message: LogDocument) => {
+const processJobApplicationCreatedEvent = async (message: DocumentData) => {
   const jobApplication = message;
 
   const from = (jobApplication._from || '').toString();
@@ -154,16 +162,29 @@ const processJobApplicationCreatedEvent = async (message: LogDocument) => {
     throw new Error(`missing 'from' or 'contractAddress'`);
   }
 
-  // write to the JobPostings document
-  await db.collection('JobApplications').add({
-    id: contractAddress,
+  const existingJobApplication = await findJobApplicationByContractAddress(
+    contractAddress
+  );
+
+  const data = {
+    contractAddress,
     applicantAddress: from,
     status: JobApplicationStatus.InProgress,
-  });
+  };
+
+  if (existingJobApplication) {
+    await db
+      .collection('JobApplications')
+      .doc(existingJobApplication.id)
+      .update(data);
+  } else {
+    // write to the JobPostings document
+    await db.collection('JobApplications').add(data);
+  }
 };
 
 const jobApplicationStatusChangeEventBase = async (
-  message: LogDocument,
+  message: DocumentData,
   status: JobApplicationStatus
 ) => {
   const jobApplication = message;
@@ -178,12 +199,11 @@ const jobApplicationStatusChangeEventBase = async (
     throw new Error(`missing 'from' or 'contractAddress'`);
   }
 
-  const existingJobApplication = await db
-    .collection('JobApplications')
-    .doc(contractAddress)
-    .get();
+  const existingJobApplication = await findJobApplicationByContractAddress(
+    contractAddress
+  );
 
-  if (!existingJobApplication.exists) {
+  if (!existingJobApplication) {
     functions.logger.error(
       `Failed to process ${jobApplication.name}: JobApplication not found (contractAddress: ${contractAddress})`
     );
@@ -195,16 +215,16 @@ const jobApplicationStatusChangeEventBase = async (
   // update the JobApplications document
   await db
     .collection('JobApplications')
-    .doc(contractAddress)
+    .doc(existingJobApplication.id)
     .update({
       ...existingJobApplication.data(),
-      id: contractAddress,
+      contractAddress,
       applicantAddress: from,
       status,
     });
 };
 
-const processJobApplicationOfferSentEvent = async (message: LogDocument) => {
+const processJobApplicationOfferSentEvent = async (message: DocumentData) => {
   return jobApplicationStatusChangeEventBase(
     message,
     JobApplicationStatus.OfferSent
@@ -212,7 +232,7 @@ const processJobApplicationOfferSentEvent = async (message: LogDocument) => {
 };
 
 const processJobApplicationOfferAcceptedEvent = async (
-  message: LogDocument
+  message: DocumentData
 ) => {
   return jobApplicationStatusChangeEventBase(
     message,
@@ -221,7 +241,7 @@ const processJobApplicationOfferAcceptedEvent = async (
 };
 
 const processJobApplicationOfferDeclinedEvent = async (
-  message: LogDocument
+  message: DocumentData
 ) => {
   return jobApplicationStatusChangeEventBase(
     message,
@@ -230,7 +250,7 @@ const processJobApplicationOfferDeclinedEvent = async (
 };
 
 const processJobApplicationApplicationDeclinedEvent = async (
-  message: LogDocument
+  message: DocumentData
 ) => {
   return jobApplicationStatusChangeEventBase(
     message,
@@ -238,9 +258,35 @@ const processJobApplicationApplicationDeclinedEvent = async (
   );
 };
 
-const processJobApplicationHiredEvent = async (message: LogDocument) => {
+const processJobApplicationHiredEvent = async (message: DocumentData) => {
   return jobApplicationStatusChangeEventBase(
     message,
     JobApplicationStatus.Hired
   );
+};
+
+const findJobPostingByContractAddress = async (contractAddress: string) => {
+  const matchedExistingJobPostings = (
+    await db
+      .collection('JobPostings')
+      .where('contractAddress', '==', contractAddress)
+      .get()
+  ).docs;
+
+  return matchedExistingJobPostings.length
+    ? matchedExistingJobPostings[0]
+    : undefined;
+};
+
+const findJobApplicationByContractAddress = async (contractAddress: string) => {
+  const matchedExistingJobApplications = (
+    await db
+      .collection('JobApplications')
+      .where('contractAddress', '==', contractAddress)
+      .get()
+  ).docs;
+
+  return matchedExistingJobApplications.length
+    ? matchedExistingJobApplications[0]
+    : undefined;
 };
