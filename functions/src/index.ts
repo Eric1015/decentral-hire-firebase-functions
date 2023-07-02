@@ -91,6 +91,9 @@ const processJobPostingCreatedEvent = async (message: DocumentData) => {
     contractAddress
   );
 
+  const contractAddressLowerCase = contractAddress.toLowerCase();
+  const companyAddressLowerCase = companyProfileAddress.toLowerCase();
+
   const data = {
     contractAddress,
     companyAddress: companyProfileAddress,
@@ -99,6 +102,8 @@ const processJobPostingCreatedEvent = async (message: DocumentData) => {
     city,
     isRemote,
     isActive: true,
+    contractAddressLowerCase,
+    companyAddressLowerCase,
   };
 
   if (existingJobPosting) {
@@ -137,6 +142,9 @@ const processJobPostingClosedEvent = async (message: DocumentData) => {
     );
   }
 
+  const contractAddressLowerCase = contractAddress.toLowerCase();
+  const companyAddressLowerCase = companyProfileAddress.toLowerCase();
+
   // update the JobPostings document
   await db
     .collection('JobPostings')
@@ -146,30 +154,43 @@ const processJobPostingClosedEvent = async (message: DocumentData) => {
       contractAddress,
       companyAddress: companyProfileAddress,
       isActive: false,
+      contractAddressLowerCase,
+      companyAddressLowerCase,
     });
 };
 
 const processJobApplicationCreatedEvent = async (message: DocumentData) => {
   const jobApplication = message;
 
-  const from = (jobApplication._from || '').toString();
+  const applicantAddress = (jobApplication._applicant || '').toString();
   const contractAddress = (jobApplication._contractAddress || '').toString();
+  const jobPostingAddress = (
+    jobApplication._jobPostingAddress || ''
+  ).toString();
 
-  if (!from || !contractAddress) {
-    functions.logger.error(
-      `Failed to process JobApplicationCreatedEvent: missing 'from' or 'contractAddress' (from: ${from}, contractAddress: ${contractAddress})`
-    );
-    throw new Error(`missing 'from' or 'contractAddress'`);
-  }
+  validateIfRequriedFieldsExistForJobApplication(
+    jobApplication.name,
+    applicantAddress,
+    contractAddress,
+    jobPostingAddress
+  );
 
   const existingJobApplication = await findJobApplicationByContractAddress(
     contractAddress
   );
 
+  const contractAddressLowerCase = contractAddress.toLowerCase();
+  const applicantAddressLowerCase = applicantAddress.toLowerCase();
+  const jobPostingAddressLowerCase = jobPostingAddress.toLowerCase();
+
   const data = {
     contractAddress,
-    applicantAddress: from,
+    applicantAddress,
+    jobPostingAddress,
     status: JobApplicationStatus.InProgress,
+    contractAddressLowerCase,
+    applicantAddressLowerCase,
+    jobPostingAddressLowerCase,
   };
 
   if (existingJobApplication) {
@@ -189,15 +210,18 @@ const jobApplicationStatusChangeEventBase = async (
 ) => {
   const jobApplication = message;
 
-  const from = (jobApplication._from || '').toString();
+  const applicantAddress = (jobApplication._applicant || '').toString();
   const contractAddress = (jobApplication._contractAddress || '').toString();
+  const jobPostingAddress = (
+    jobApplication._jobPostingAddress || ''
+  ).toString();
 
-  if (!from || !contractAddress) {
-    functions.logger.error(
-      `Failed to process ${jobApplication.name}: missing 'from' or 'contractAddress' (from: ${from}, contractAddress: ${contractAddress})`
-    );
-    throw new Error(`missing 'from' or 'contractAddress'`);
-  }
+  validateIfRequriedFieldsExistForJobApplication(
+    jobApplication.name,
+    applicantAddress,
+    contractAddress,
+    jobPostingAddress
+  );
 
   const existingJobApplication = await findJobApplicationByContractAddress(
     contractAddress
@@ -212,6 +236,10 @@ const jobApplicationStatusChangeEventBase = async (
     );
   }
 
+  const contractAddressLowerCase = contractAddress.toLowerCase();
+  const applicantAddressLowerCase = applicantAddress.toLowerCase();
+  const jobPostingAddressLowerCase = jobPostingAddress.toLowerCase();
+
   // update the JobApplications document
   await db
     .collection('JobApplications')
@@ -219,8 +247,12 @@ const jobApplicationStatusChangeEventBase = async (
     .update({
       ...existingJobApplication.data(),
       contractAddress,
-      applicantAddress: from,
+      applicantAddress,
+      jobPostingAddress,
       status,
+      contractAddressLowerCase,
+      applicantAddressLowerCase,
+      jobPostingAddressLowerCase,
     });
 };
 
@@ -289,4 +321,21 @@ const findJobApplicationByContractAddress = async (contractAddress: string) => {
   return matchedExistingJobApplications.length
     ? matchedExistingJobApplications[0]
     : undefined;
+};
+
+const validateIfRequriedFieldsExistForJobApplication = (
+  eventName: string,
+  applicantAddress: string,
+  contractAddress: string,
+  jobPostingAddress: string
+) => {
+  if (!applicantAddress || !contractAddress || !jobPostingAddress) {
+    functions.logger.error(
+      `Failed to process ${eventName}: missing 'applicant' or 'contractAddress' or 'jobPostingAddress' ` +
+        `(applicant: ${applicantAddress}, contractAddress: ${contractAddress}, jobPostingAddress: ${jobPostingAddress})`
+    );
+    throw new Error(
+      `missing 'applicant' or 'contractAddress' or 'jobPostingAddress'`
+    );
+  }
 };
